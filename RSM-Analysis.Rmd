@@ -1,0 +1,151 @@
+---
+title: "Response Surface Methodology for Size and PDI optimization"
+author: "Juan Antonio Alfaro Almaguer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# RSM for Size and PDI optimization
+
+Along this markdown document, you will find all the steps, data and assumptions made for executing the optimization of experimental conditions for the Size and PDI of the synthetized Solid Lipid Nanoparticles
+
+## I. Package installing and loading
+
+```{r}
+install.packages("rsm")
+install.packages("nortest")
+install.packages("lmtest")
+install.packages("sandwich")
+install.packages("plotly")
+
+library(lmtest)
+library(nortest)
+library(rsm)
+library(sandwich)
+library(plotly)
+library(ggplot2)
+```
+
+## II. Data import
+
+We will import the raw data in .csv format from the reported experiments. As part of the factorial experiment, we have
+
+-   Two responses: Size [nm] and PDI
+
+-   Two factors: Lipid [mg] and surfactant [mg]
+
+-   With three replicates
+
+```{r}
+dfData<-read.csv('Data.csv')
+
+# Next, we have to code the data in -1, 0 +1 form
+lCoded<-coded.data(dfData, x1~(Lipid-1500)/750, x2~(Surfactant-450)/225)
+```
+
+## II. First-order RSM for Size and PDI
+
+```{r}
+FO.Size.RSM<-rsm(Size~FO(x1,x2), data=lCoded)
+summary(FO.Size.RSM) #For visualizing the results
+```
+
+```{r}
+FO.PDI.RSM<-rsm(PDI~FO(x1,x2), data=lCoded)
+summary(FO.PDI.RSM)
+```
+
+## III. Second-order RSM for Size and PDI
+
+```{r}
+SO.Size.RSM<-rsm(Size~SO(x1,x2), data=lCoded)
+summary(SO.Size.RSM)
+```
+
+As we can see, the lack of fit is less significant on the Second order model for Size in comparison with the first order one. Considering this, we can move forward to validate normality and homosedasticity of the residuals of the second order RSM
+
+```{r}
+#Normality of residuals
+ad.test(residuals(SO.Size.RSM))
+
+#Homosedasticity
+bptest(SO.Size.RSM)
+```
+
+We can then, move forward with the second order analysis for PDI
+
+```{r}
+SO.PDI.RSM<-rsm(PDI~SO(x1,x2), data=lCoded)
+summary(SO.PDI.RSM)
+```
+
+As is noted, we have a less significant lack-of-fit for the second order RSM analysis on PDI rather than the first-order one. Although, the R-squared is higher on the second order analysis. This indicates us to use the second order analysis rather than the first order one.
+
+For the validation of the model, it is needed to asses the normality and homosedasticity assumptions
+
+```{r}
+ad.test(residuals(SO.PDI.RSM))
+
+bptest(SO.PDI.RSM)
+```
+
+## IV. Plotting of the selected second-order models
+
+Because the equations of the RSM models come from a coded dataset, in which the factors are labeled as (lower=-1, medium=0, and higher=1) for both surfactant and lipid, we need to transform the input variables of those equations so they can take the real values of the factors as an argument (independent variables)
+
+```{r}
+#Define the transform functions
+fTransLipid<-function(x){
+  return((x*750)+1500)
+}
+fTransSurfactant<-function(x){
+  return((x*225)+450)
+}
+```
+
+In order to perform the plotting, we need first to create a grid of data in which both factors will be combined to create a dataset of combinations to load our RSM functions.
+
+```{r}
+vX1<-seq(-1.1,1.1,length=1000)
+vX2<-seq(-1.1,1.1,length=1000)
+dfCodedGrid<-expand.grid(x1=vX1, x2=vX2)
+```
+
+The created grid has 1000 \* 1000 size, ranging from -1.1 to 1.1 in each dimension (because the factors for the RSM are coded in the -1, 0, +1 form). This means we will have 1 000 000 different combinations of both factors to be loaded onto our RSM equations. Those 1 000 000 different results will be used to create our surface plots
+
+Then, we need to transform all of the values in the range from -1.1 to 1.1 to the real values of both Lipid and Surfactant. For this purpose, we will be using the previous transform equations. The RSM equations will use as variables the coded values (with the range from -1.1 to 1.1), but in the surface plots, the real range of the factor variables (Lipid and surfactant) will be displayed
+
+```{r}
+#Transform
+dfCodedGrid$Lipid<-fTransLipid(dfCodedGrid$x1)
+dfCodedGrid$Surfactant<-fTransSurfactant(dfCodedGrid$x2)
+dfCodedGrid
+```
+
+For example, in the first row of the dataframe; we have -1.1 for x1, and -1.1 for x2. This is translated to a 675.0 value for Lipid, and 202.5 value for surfactant. Our RSM models will be "feed" using -1.1 and -1.1 for x1 and x2, respectively; but in "real life" those values represent 675.0 and 202.5, respectively.
+
+Then, we can proceed to calculate the predicted values for PDI and Size using the equations from out RSM analysis; and the x1 and x2 values created in the previous dataframe.
+
+```{r}
+dfCodedGrid$Size<-predict(SO.Size.RSM,newdata = dfCodedGrid)
+dfCodedGrid$PDI<-predict(SO.PDI.RSM,newdata = dfCodedGrid)
+dfCodedGrid
+```
+
+With the previous dataframe, we can proceed and perform final plotting
+
+```{r}
+#For size
+lGraph.SO.Size.RSM<-plot_ly(data = dfCodedGrid, x= ~Lipid, y= ~Surfactant,z= ~Size,type = "contour")%>%
+  layout(font=list(family="Helvetica",
+                   size=15))
+lGraph.SO.Size.RSM
+```
+
+```{r}
+#For PDI
+lGraph.SO.PDI.RSM<-plot_ly(data = dfCodedGrid, x= ~Lipid, y= ~Surfactant,z= ~PDI,type = "contour")%>%
+  layout(font=list(family="Helvetica",
+                   size=15))
+lGraph.SO.PDI.RSM
+```
